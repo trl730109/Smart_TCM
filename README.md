@@ -1,97 +1,88 @@
-# OpenFedLLM: Training Large Language Models on Decentralized Private Data via Federated Learning
+<p align="center">
+    <br>
+    <img src="https://github.com/michael-wzhu/ChatMed/blob/main/pics/ChatMed.png" width="355"/>
+    <br>
+</p>
+<p align="center">
+    <img alt="GitHub" src="https://img.shields.io/github/license/ymcui/Chinese-LLaMA-Alpaca.svg?color=blue&style=flat-square">
+    <img alt="GitHub top language" src="https://img.shields.io/github/languages/top/ymcui/Chinese-LLaMA-Alpaca">
+</p>
 
-**OpenFedLLM** is an open-source research-use codebase for training *Large Language Models (LLM)* via federated learning. Please check our [paper](https://arxiv.org/abs/2402.06954) for details and the corresponding empirical study.
+2023 HKUST(GZ) MPhil program: Towards Smart TCM 1. This project aims to build a smart TCM chatbot with FedLLM fine-tuning based on Llama2-7b.
 
-OpenFedLLM includes the following key features:
-- 7 **federated learning** algorithms (e.g., *FedAvg*, *FedProx*, *SCAFFOLD*, *FedAvgM*, etc.).
-- 2 **LLM training** algorithms, including instruction tuning (i.e. *SFT*) and value alignment (i.e., *DPO*).
-- 30+ **evaluation metrics** covering *general capabilities*, *medical QA*, *financial QA*, *code generation*, *math solving*, and more.
+----
+
+Modified from the following projects
+- 🚀 [ChatMed-Consult](https://github.com/michael-wzhu/ChatMed) : 基于[中文医疗在线问诊数据集ChatMed_Consult_Dataset](https://huggingface.co/datasets/michaelwzhu/ChatMed_Consult_Dataset)的50w+在线问诊+ChatGPT回复作为训练集。模型主干为[LlaMA-7b](https://github.com/facebookresearch/llama),融合了[Chinese-LlaMA-Alpaca](https://github.com/ymcui/Chinese-LLaMA-Alpaca)的LoRA权重与中文扩展词表，然后再进行基于LoRA的参数高效微调。我们将全部数据和代码都进行了公开。我们也将部署一个在线Gradio demo, 敬请关注。
+- 🚀 [ShenNong-TCM-LLM](https://github.com/michael-wzhu/ShenNong-TCM-LLM) : 大模型赋能中医药传承。这一模型的训练数据为[中医药指令数据集ChatMed_TCM_Dataset](https://huggingface.co/datasets/michaelwzhu/ShenNong_TCM_Dataset)。以我们开源的[中医药知识图谱](https://github.com/ywjawmw/TCM_KG)为基础，采用以实体为中心的自指令方法(entity-centric self-instruct)，调用ChatGPT得到11w+的围绕中医药的指令数据。ShenNong-TCM-LLM模型也是以LlaMA为底座，采用LoRA微调得到。
 
 
-![intro](doc/assets/openfedllm-intro.png)
+----
 
-## News🔥
-- **2024-06:** We released the first realistic benchmark for FedLLM: FedLLM-Bench. Check the [Paper](https://arxiv.org/pdf/2406.04845) | [Code](https://github.com/rui-ye/FedLLM-Bench).
+### 快速上手
 
-## Setup
+在使用[FedLLM-TCM](https://github.com/trl730109/FedLLM-TCM)之前，大家需要准备好LlaMA-7b底座模型，详细操作见[LlaMA-7b模型准备](https://github.com/michael-wzhu/ChatMed/blob/main/src/chatmed_llama_peft/LlaMA-7b%E6%A8%A1%E5%9E%8B%E5%87%86%E5%A4%87.md)。
 
-Clone the repo, submodules and install the required packages.
+LlaMA-7b底座模型准备好后，下载[ChatMed-Consult的LoRA权重](https://huggingface.co/michaelwzhu/ChatMed-Consult)，在3090显卡(或者更强的显卡) 运行以下命令，启动一个简单的基于flask的web service:
 
-```
-git clone --recursive --shallow-submodules https://github.com/rui-ye/OpenFedLLM.git
-cd OpenFedLLM
-conda create -n fedllm python=3.10
-conda activate fedllm
-pip install -r requirements.txt
-source setup.sh
-```
-
-## Training
-
-We provide training scripts under `training_scripts/`. Try them out from the top-level directory of this repository.
-
-### Federated Instruction Tuning
-
-The training script is in `training_scripts/run_sft.sh`.
-
-```
-CUDA_VISIBLE_DEVICES=1 python main_sft.py \
- --model_name_or_path "meta-llama/Llama-2-7b-hf" \
- --dataset_name "vicgalle/alpaca-gpt4" \
- --dataset_sample 20000 \
- --fed_alg "fedavg" \
- --num_clients 20 \
- --sample_clients 2 \
- --max_steps 10 \
- --num_rounds 200 \
- --batch_size 16 \
- --gradient_accumulation_steps 1 \
- --seq_length 512 \
- --peft_lora_r 32 \
- --peft_lora_alpha 64 \
- --use_peft \
- --load_in_8bit \
- --output_dir "./output" \
- --template "alpaca" \
+```bash
+python src/web_services/web_service_simple.py
 ```
 
-Key arguments:
-
-- `model_name_or_path`: the name or local location of your base model
-- `template`: template for chatting. Define your own template in `utils/template.py`.
-- `dataset_name`: the name of dataset. You may modify `utils/process_dataset.py` if your interested dataset has not been supported.
-- `dataset_sample`: needed if you want to sample a specific number of samples from the original dataset.
-- `fed_alg`: the name of federated learning algorithm
-- `num_clients`/sample_clients: `num_clients` clients in total, `sample_clients` clients for each round
-- `max_steps`: the number of model update steps for one client at each round.
-
-### Federated Value Alignment
-
-The training script is in `training_scripts/run_dpo.sh`.
-
-```
-python main_dpo.py --template "vicuna_v1.1"
+然后运行 
+```bash
+python src/web_services/web_service_test.py
 ```
 
-Note that the main difference between the usage of `main_sft.py` and `main_dpo.py` lies in the `template` argument. We plan to make them consistent in the future.
-- For SFT, templates are defined in `utils/template.py`
-- For DPO, templates are defined in `utils/conversation.py`
+上面的脚本主要是运行了test_examples.json文件中提供了测试用例。在使用自己的测试用例时，请注意保持格式一致。
 
-## Evaluation
+### Lora weight merging with Chinese alpaca models
 
-Evaluation codes are put in `evaluation/` directory. Most of our evaluations follow existing high-incluence open-source repos. Please refer to each sub-directory for the corresponding detailed README and running script.
+Download the Lora weights from LlamaChinese-LLaMA-Plus-7B[https://drive.google.com/file/d/1N97m3rBj-rp-J1X8rgRfluyomEscfAq0/view?usp=sharing] and Chinese-Alpaca-Plus-7B[https://drive.google.com/file/d/1EDcTmq6tDmRxqarpapdyDGBE9opY0zrB/view?usp=share_link] to the ./resources directory. 
 
-For example, `evaluation/open_ended/` include open-ended evaluations on three benchmarks, covering MT-Bench, Vicuna Bench, and AdvBench; see [README.md](evaluation/open_ended/README.md).
-
-## Citation
-
-Please cite our paper if you find the repository helpful.
-
+Run the following command to merge the weights:
+```bash
+python src/chatmed_llama_peft/merge_llama_with_chinese_lora.py \
+    --base_model ./resources/llama-7b-hf \
+    --lora_model ./resources/chinese-llama-plus-lora-7b,./resources/chinese-alpaca-plus-lora-7b \
+    --output_type huggingface \
+    --output_dir ./resources/chinese-llama-alpaca-plus-lora-7b
 ```
-@article{ye2024openfedllm,
-  title={OpenFedLLM: Training Large Language Models on Decentralized Private Data via Federated Learning},
-  author={Ye, Rui and Wang, Wenhao and Chai, Jingyi and Li, Dihan and Li, Zexi and Xu, Yinda and Du, Yaxin and Wang, Yanfeng and Chen, Siheng},
-  journal={arXiv preprint arXiv:2402.06954},
-  year={2024}
-}
+### Fine-tune
+
+Download LlaMA-7b底座模型，保存于`resources/chinese-llama-alpaca-plus-lora-7b`路径。数据集采用[中医药指令数据集ChatMed_TCM_Dataset](https://huggingface.co/datasets/michaelwzhu/ShenNong_TCM_Dataset)。我们采用deepspeed实现分布式训练：
+
+```bash
+./src/chatmed_llama_peft/run_train.sh
 ```
+
+训练脚本中使用的是8张显卡，大家根据自己的服务器情况调整超参数。
+
+### Federated data partition
+
+Strategy 1: Dirichlet-distribution-based quantity skew: The degree of NIID is based on the concentration hyperparameter.
+
+Strategy 2: Disease organs or location-based partition: 
+
+| Category                        | Count  | | Client    | Count  |
+|---------------------------------|--------|-|-----------|--------|
+| Respiratory System Diseases     | 26,559 | | Client 1  | 9,670  |
+| Digestive System Diseases       | 44,300 | | Client 2  | 6,578  |
+| Cardiovascular Diseases         | 28,871 | | Client 3  | 36     |
+| Musculoskeletal Disorders       | 843    | | Client 4  | 14,211 |
+| Endocrine Disorders             | 65     | | Client 5  | 1,558  |
+| Kidney and Urinary Diseases     | 2,579  | | Client 6  | 30,571 |
+| Skin Diseases                   | 1,894  | | Client 7  | 2,228  |
+| Traditional Chinese Medicine    | 5,837  | | Client 8  | 2,739  |
+| Others                          | 1,617  | | Client 9  | 22,304 |
+|                                 |        | | Client 10 | 22,665 |   
+| Total                           | 112,565| | Total     | 112,565|   
+
+
+
+
+
+
+
+
+
