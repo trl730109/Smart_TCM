@@ -15,6 +15,8 @@ def get_dataset(dataset_name, local_data_dir=None):
     elif dataset_name == "HuggingFaceH4/ultrafeedback_binarized":
         dataset_name = local_data_dir + dataset_name if local_data_dir is not None else dataset_name
         dataset = load_dataset(dataset_name, split="train_sft")
+    elif dataset_name == "michaelwzhu/ShenNong_TCM_Dataset":
+        dataset = load_dataset(dataset_name, split="train")
     else:
         dataset_name = local_data_dir + dataset_name if local_data_dir is not None else dataset_name
         dataset = load_dataset(dataset_name, split="train")
@@ -45,13 +47,15 @@ def process_sft_dataset(dataset_name, dataset, dataset_sample):
         dataset = dataset.remove_columns(['instruction'])
         dataset = dataset.rename_column("input", "instruction")
         dataset = dataset.rename_column("output", "response")
+    elif dataset_name in ["michaelwzhu/ShenNong_TCM_Dataset"]:
+        dataset = dataset.rename_column("query", "instruction")
     else:
         raise NotImplementedError(f"Dataset {dataset_name} is not supported.")
     dataset = dataset.shuffle(seed=2023)
-    if dataset_sample:
-        num_sample = min(len(dataset), dataset_sample)
-        dataset = dataset.select(range(num_sample))
-    print(f">> ===== After processing, Dataset {dataset_name} has {len(dataset)} examples. =====")
+    # if (dataset_sample != 0) :
+    #     num_sample = min(len(dataset), dataset_sample)
+    #     dataset = dataset.select(range(num_sample))
+    print(f">> ===== Dataset {dataset_name} has {len(dataset)} examples. =====")
     return dataset
 
 def alpaca_format(example):

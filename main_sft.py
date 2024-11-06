@@ -1,16 +1,19 @@
 import copy
 import os
+import math
+import json
 from tqdm import tqdm
 import numpy as np
-
-from transformers import AutoModelForCausalLM, AutoTokenizer
-from trl import DataCollatorForCompletionOnlyLM
+import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer, default_data_collator, TrainingArguments, Trainer
+from trl import DataCollatorForCompletionOnlyLM, SFTTrainer
 from peft import get_peft_model, get_peft_model_state_dict, set_peft_model_state_dict, prepare_model_for_kbit_training
 
 from utils import *
 from federated_learning import *
+from federated_learning.split_dataset import *
 from config import get_config, save_config, get_model_config, get_training_args
-
+        
 # ===== Define the arguments =====
 script_args, fed_args, peft_config = get_config()
 training_args = get_training_args(script_args, script_args.learning_rate)
@@ -21,8 +24,15 @@ print(script_args, fed_args)
 dataset = get_dataset(script_args.dataset_name, script_args.local_data_dir)
 dataset = process_sft_dataset(script_args.dataset_name, dataset, script_args.dataset_sample)
 
+train_test_split = dataset.train_test_split(test_size=0.1, seed=2023)
+
+# Access the training and test sets
+train_dataset = train_test_split['train']
+test_dataset = train_test_split['test']
+
 # ===== Split the dataset into clients =====
-local_datasets = split_dataset(fed_args, script_args, dataset)
+# local_datasets = split_dataset(fed_args, script_args, train_dataset)
+local_datasets = partition_dataset_with_quantity_skew(fed_args, train_dataset)
 sample_num_list = [len(local_datasets[i]) for i in range(fed_args.num_clients)]
 
 # ===== Get model config =====
@@ -34,6 +44,7 @@ model = AutoModelForCausalLM.from_pretrained(
     device_map=device_map,
     trust_remote_code=script_args.trust_remote_code,
     torch_dtype=torch_dtype,
+    use_safetensors=True
 )
 
 if script_args.load_in_8bit or script_args.load_in_4bit:
@@ -67,7 +78,26 @@ data_collator = DataCollatorForCompletionOnlyLM(response_template_ids, tokenizer
 
 # ===== Start federated training =====
 training_loss = [[] for i in range(fed_args.num_clients)]
+test_loss_list = []
+test_args = TrainingArguments(
+        output_dir='./results',
+        per_device_eval_batch_size=8,
+        do_train=False,
+        do_eval=True)
 
+test_trainer = SFTTrainer(model=model, 
+                tokenizer = tokenizer, 
+                args=test_args, 
+                compute_metrics=None, 
+                eval_dataset = test_dataset,
+                formatting_func=formatting_prompts_func,
+                )
+eval_results = test_trainer.evaluate()
+print(eval_results)
+test_loss_list.append(eval_results['eval_loss'])
+print(f'Before training test loss: {eval_results}')
+
+train_loss_step = {i:[] for i in range(fed_args.num_clients)}
 for round in tqdm(range(fed_args.num_rounds)):
 
     clients_this_round = get_clients_this_round(fed_args, round)
@@ -80,9 +110,23 @@ for round in tqdm(range(fed_args.num_rounds)):
             training_loss[client].append(-1)            # -1 is an indicator of not training
             continue
 
-        set_peft_model_state_dict(model, global_dict)   # sync the global model to the local model
+        # global_dict_copy = copy.deepcopy(global_dict)
+        # initial_model_weights = copy.deepcopy(get_peft_model_state_dict(model))
+        # print("Initial model LoRA weights captured.")
 
-        sub_dataset = get_dataset_this_round(local_datasets[client], round, fed_args, script_args)      # get the required sub-dataset for this round
+        set_peft_model_state_dict(model, global_dict)
+        # def compare_state_dicts(dict1, dict2):
+        #     for key in dict1:
+        #         if not torch.equal(dict1[key], dict2[key]):
+        #             return False
+        #     return True
+
+        # if compare_state_dicts(initial_model_weights, global_dict):
+        #     print("The base model already load the lastest global lora weights.")
+        # else:
+        #     print("Load global LoRA unsuccessfully.")
+        # sub_dataset = get_dataset_this_round(local_datasets[client], round, fed_args, script_args)      # get the required sub-dataset for this round
+        sub_dataset = local_datasets[client]
         new_lr = cosine_learning_rate(round, fed_args.num_rounds, script_args.learning_rate, 1e-6)      # manually schedule the learning rate
         training_args = get_training_args(script_args, new_lr)
 
@@ -104,11 +148,17 @@ for round in tqdm(range(fed_args.num_rounds)):
         results = trainer.train()
         training_loss[client].append(results.training_loss)
 
+        loss_epoch_list = []
+        for elem in trainer.state.log_history:
+            if 'loss' in elem.keys():
+                loss_epoch_list.append(elem['loss'])
+        train_loss_step[client].append(loss_epoch_list)
         # ===== Client transmits local information to server =====
         if fed_args.fed_alg == 'scaffold':
             auxiliary_model_list[client], auxiliary_delta_dict[client] = trainer.get_auxiliary_param()
 
         local_dict_list[client] = copy.deepcopy(get_peft_model_state_dict(model))   # copy is needed!
+        set_peft_model_state_dict(model, global_dict)
 
     # ===== Server aggregates the local models =====
     global_dict, global_auxiliary = global_aggregate(
@@ -123,3 +173,49 @@ for round in tqdm(range(fed_args.num_rounds)):
         trainer.save_model(os.path.join(script_args.output_dir, f"checkpoint-{round+1}"))
     
     np.save(os.path.join(script_args.output_dir, "training_loss.npy"), np.array(training_loss))
+    
+    test_args = TrainingArguments(
+        output_dir='./results',
+        per_device_eval_batch_size=8,
+        do_train=False,
+        do_eval=True)
+
+    test_trainer = SFTTrainer(model=model, 
+                    tokenizer = tokenizer, 
+                    args=test_args, 
+                    compute_metrics=None, 
+                    eval_dataset = test_dataset,
+                    formatting_func=formatting_prompts_func,
+                    )
+    eval_results = test_trainer.evaluate()
+    print(eval_results)
+    test_loss_list.append(eval_results['eval_loss'])
+
+json_string = json.dumps(test_loss_list)
+json_path = os.path.join(script_args.output_dir , 'test_losses.json')
+with open(json_path, 'w') as file:
+    file.write(json_string)
+    
+file_path = os.path.join(script_args.output_dir , 'client_train_loss.json')
+with open(file_path, 'w') as json_file:
+    json.dump(train_loss_step, json_file, indent=4)
+    
+print(f'Data successfully saved to {file_path}')
+    
+# print(f'Test on the test datasets:')
+# print("Number of samples in the test dataset:", len(test_dataset))
+# test_args = TrainingArguments(
+#         output_dir='./results',
+#         per_device_eval_batch_size=8,
+#         do_train=False,
+#         do_eval=True)
+
+# trainer = SFTTrainer(model=model, 
+#                   tokenizer = tokenizer, 
+#                   args=test_args, 
+#                   compute_metrics=None, 
+#                   eval_dataset = test_dataset,
+#                   formatting_func=formatting_prompts_func,
+#                   )
+# eval_results = trainer.evaluate()
+# print(eval_results)

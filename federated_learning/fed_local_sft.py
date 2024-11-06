@@ -1,7 +1,8 @@
 import torch
 import copy
+import math
 from trl import SFTTrainer
-from transformers import TrainerCallback
+from transformers import TrainerCallback, Trainer
 from peft import get_peft_model_state_dict, set_peft_model_state_dict
 
 def get_fed_local_sft_trainer(script_args, fed_args, model, tokenizer, training_args, local_dataset, formatting_prompts_func, data_collator, global_dict, local_auxiliary, global_auxiliary):
@@ -41,10 +42,14 @@ def get_fed_local_sft_trainer(script_args, fed_args, model, tokenizer, training_
             train_dataset=local_dataset,
             formatting_func=formatting_prompts_func,
             data_collator=data_collator,
+            # logging_dir='./logs',
+            # logging_strategy="steps",
+            # logging_steps=50,
         )
     else:
         raise ValueError(f'Unsupported `fed_alg`: {fed_args.fed_alg}')
     return trainer
+
 
 class SFTTrainerFedProx(SFTTrainer):
     def __init__(self, global_state, prox_mu, **kwargs):
@@ -72,6 +77,51 @@ class SFTTrainerFedProx(SFTTrainer):
 
         return (loss, outputs) if return_outputs else loss
 
+class LLMTrainer:
+    def __init__(self, net, test_dl, device):
+        self.net = net
+        self.test_dl = test_dl
+        self.device = device
+        
+    def to_device(self, batch):
+        """Move batch of data into device memory."""
+        if type(batch) == dict: 
+            keys = list(batch.keys())
+            device_batch = {
+                k: v.to(device=self.device, dtype=torch.long if k == "input_ids" else None, non_blocking=True)
+                for k, v in batch.items()
+                if k in keys  # Add more keywords here if needed
+            }
+        elif type(batch) == list:
+            device_batch = [
+                v.to(device=self.device, non_blocking=True)
+                for v in batch
+            ]
+        else:
+            raise RuntimeError
+        return device_batch
+
+    def test(self):
+            self.net.eval()
+            test_loss = 0
+            total = 0
+            total_iters = 0
+
+            with torch.no_grad():
+                for step, batch in enumerate(self.test_dl):
+                    device_batch = self.to_device(batch)
+                    outputs = self.net(**device_batch)
+                    loss = outputs.loss
+                    batch_size = device_batch["labels"].size(0)
+                    test_loss += loss.data.item()
+                    total += device_batch["labels"].size(0)
+                    total_iters += 1
+
+            test_loss /= total_iters
+            test_ppl = math.exp(test_loss)
+            # print('Epoch %d, lr: %f, val loss: %f, val ppl: %f' % (epoch, self.lr, test_loss, test_ppl))
+            self.net.train()
+            return test_ppl, test_loss
 
 class SFTTrainerSCAFFOLD(SFTTrainer):
     def __init__(self, global_state, local_auxiliary, global_auxiliary, **kwargs):
