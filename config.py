@@ -135,7 +135,7 @@ def get_model_config(script_args):
 def save_config(script_args, fed_args):
     now_time = (datetime.now()).strftime("%Y%m%d%H%M%S")
     dataset_name_split = os.path.basename(script_args.dataset_name)
-    output_dir = f"{script_args.output_dir}/{dataset_name_split}_{fed_args.fed_alg}_c{fed_args.num_clients}s{fed_args.sample_clients}_i{script_args.max_steps}_b{script_args.batch_size}a{script_args.gradient_accumulation_steps}_l{script_args.seq_length}_r{script_args.peft_lora_r}a{script_args.peft_lora_alpha}_{now_time}"
+    output_dir = f"{script_args.output_dir}/{dataset_name_split}_{fed_args.fed_alg}_client{fed_args.num_clients}_sample{fed_args.sample_clients}_{now_time}"
     while True:
         if not os.path.exists(output_dir):
             os.mkdir(output_dir)

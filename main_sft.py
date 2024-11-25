@@ -29,11 +29,14 @@ train_test_split = dataset.train_test_split(test_size=0.1, seed=2023)
 # Access the training and test sets
 train_dataset = train_test_split['train']
 test_dataset = train_test_split['test']
+print(f'Train dataset size: {len(train_dataset)}')
+print(f'Train dataset size: {len(test_dataset)}')
 
 # ===== Split the dataset into clients =====
 # local_datasets = split_dataset(fed_args, script_args, train_dataset)
 local_datasets = partition_dataset_with_quantity_skew(fed_args, train_dataset)
 sample_num_list = [len(local_datasets[i]) for i in range(fed_args.num_clients)]
+print(f'Partitioned dataset size: {sample_num_list}')
 
 # ===== Get model config =====
 device_map, quantization_config, torch_dtype = get_model_config(script_args)
