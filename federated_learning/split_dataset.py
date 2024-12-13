@@ -32,3 +32,31 @@ def partition_dataset_with_quantity_skew(fed_args, raw_dataset):
     ]
     
     return partitions
+
+def partition_dataset_with_disease_classes(fed_args, raw_dataset, Categories):
+   # Initialize empty partitions for each category
+    partitions = {category: [] for category in Categories}
+
+    # Iterate over the dataset and assign records to categories
+    for idx in range(len(raw_dataset)):
+        query = raw_dataset[idx]["instruction"]
+        response = raw_dataset[idx]["response"]
+
+        # Assign to categories based on keywords
+        assigned = False
+        for category, keywords in Categories.items():
+            if any(keyword in query or keyword in response for keyword in keywords):
+                partitions[category].append(idx)
+                assigned = True
+                break
+        
+        # If no category matches, classify as "Others"
+        if not assigned:
+            partitions["Others"].append(idx)
+
+    # Convert indices to subsets of the raw dataset
+    client_partitions = [
+        raw_dataset.select(indices) for indices in partitions.values()
+    ]
+
+    return client_partitions

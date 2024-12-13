@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 import json
 
 # Load the data from the JSON file
-file_path = "/home/tangzichen/OpenFedLLM/output/ShenNong_TCM_Dataset_fedavg_c4s4_i-1_b8a1_l512_r32a64_20241106105721/client_train_loss.json"
+file_path = "/home/tangzichen/OpenFedLLM/output/ShenNong_TCM_Dataset_fedavg_client8_sample8_20241107092655/client_train_loss.json"
 with open(file_path, 'r') as file:
     data = json.load(file)
 

@@ -1,10 +1,10 @@
 max_steps=-1
-num_rounds=1
-batch_size=1
+num_rounds=5
+batch_size=4
 gradient_accumulation_steps=1
 seq_length=512
-num_clients=4
-sample_clients=4
+num_clients=9
+sample_clients=9
 lora_r=32
 lora_alpha=64   # twice of lora_r
 lr=5e-5
@@ -14,13 +14,15 @@ local_data_dir="/home/tangzichen/ShenNong_TCM_Dataset"       # you may uncomment
 dataset_name="michaelwzhu/ShenNong_TCM_Dataset"
 dataset_sample=0
 # model_name_or_path="/data2/share/Qwen-7b-chat"
-# model_name_or_path="Qwen/Qwen1.5-0.5B-Chat"
-model_name_or_path="/data2/share/Qwen1.5-7B-chat"
+model_name_or_path="Qwen/Qwen1.5-0.5B-Chat"
+# model_name_or_path="/data2/share/Qwen1.5-7B-chat"
+# model_name_or_path="/data2/share/Qwen1.5-0.5B-Chat"
 output_dir=./output
 use_peft=True
-gpu=7
+gpu=0
 fed_alg="fedavg"
 concentration=0.5
+partition_type='disease'
 
 CUDA_VISIBLE_DEVICES=$gpu python main_sft.py \
  --learning_rate $lr \
@@ -28,6 +30,7 @@ CUDA_VISIBLE_DEVICES=$gpu python main_sft.py \
  --dataset_name $dataset_name \
  --dataset_sample $dataset_sample \
  --fed_alg $fed_alg \
+ --partition_type $partition_type \
  --concentration $concentration \
  --num_clients $num_clients \
  --sample_clients $sample_clients \

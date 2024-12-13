@@ -24,7 +24,7 @@ class FedArguments:
     fedopt_beta1: Optional[float] = field(default=0.9, metadata={"help": "the beta1 parameter of FedYogi and FedAdam"})
     fedopt_beta2: Optional[float] = field(default=0.99, metadata={"help": "the beta2 parameter of FedYogi and FedAdam"})
     save_model_freq: Optional[int] = field(default=50, metadata={"help": "the frequency to save the model. 50 means save every 50 rounds"})
-
+    partition_type: Optional[str] = field(default="iid", metadata={"help": "the split strategy"})
 @dataclass
 class ScriptArguments:
 
@@ -85,7 +85,7 @@ def get_config():
     return script_args, fed_args, peft_config
 
 # ===== Define the training arguments =====
-def get_training_args(script_args, new_lr):
+def get_training_args(script_args, new_lr, max_steps):
     training_args = TrainingArguments(
         output_dir=script_args.output_dir,
         per_device_train_batch_size=script_args.batch_size,
@@ -95,7 +95,32 @@ def get_training_args(script_args, new_lr):
         logging_strategy="steps",
         logging_dir=os.path.join(script_args.output_dir, "logs"),
         num_train_epochs=1,
-        max_steps=script_args.max_steps,
+        max_steps=max_steps,
+        report_to=script_args.log_with,
+        save_steps=script_args.save_steps,
+        save_total_limit=script_args.save_total_limit,
+        push_to_hub=script_args.push_to_hub,
+        hub_model_id=script_args.hub_model_id,
+        gradient_checkpointing=script_args.gradient_checkpointing,
+        lr_scheduler_type="constant",
+    )
+    return training_args
+
+def update_logging_steps(script_args, new_max_steps, new_lr):
+    if script_args.logging_steps > new_max_steps:
+        new_logging_steps = max(1, int(new_max_steps / 10))
+    else:
+        new_logging_steps = script_args.logging_steps
+    training_args = TrainingArguments(
+        output_dir=script_args.output_dir,
+        per_device_train_batch_size=script_args.batch_size,
+        gradient_accumulation_steps=script_args.gradient_accumulation_steps,
+        learning_rate=new_lr,
+        logging_steps=new_logging_steps,
+        logging_strategy="steps",
+        logging_dir=os.path.join(script_args.output_dir, "logs"),
+        num_train_epochs=1,
+        max_steps=new_max_steps,
         report_to=script_args.log_with,
         save_steps=script_args.save_steps,
         save_total_limit=script_args.save_total_limit,

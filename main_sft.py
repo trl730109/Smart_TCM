@@ -12,11 +12,23 @@ from peft import get_peft_model, get_peft_model_state_dict, set_peft_model_state
 from utils import *
 from federated_learning import *
 from federated_learning.split_dataset import *
-from config import get_config, save_config, get_model_config, get_training_args
+from config import get_config, save_config, get_model_config, get_training_args, update_logging_steps
+
+Categories = {
+    "Respiratory System Diseases": ["喘", "呼吸", "肺", "鼻", "气管", "咽喉", "咳嗽"],  # 呼吸系统疾病
+    "Digestive System Diseases": ["胃", "肠", "腹", "口", "咽", "喉", "粪便", "便"],  # 消化系统疾病
+    "Cardiovascular Diseases": ["经络", "心", "中风", "血", "脉", "头"],  # 心血管疾病
+    "Musculoskeletal Disorders": ["筋", "骨", "髓", "风湿"],  # 肌肉骨骼疾病
+    "Endocrine Disorders": ["糖尿病", "甲状腺疾病", "肾上腺功能减退"],  # 内分泌失调
+    "Kidney and Urinary Diseases": ["肾", "尿", "精", "虚"],  # 肾脏和泌尿系统疾病
+    "Skin Diseases": ["疹", "癣", "疮", "痘", "面", "肿"],  # 皮肤病
+    "Traditional chinese medicine": ["功效", "作用", "用法", "治疗", "推荐", "文献"],  # 中医
+    "Others": ["其他疾病"],  # 其他疾病
+}
         
 # ===== Define the arguments =====
 script_args, fed_args, peft_config = get_config()
-training_args = get_training_args(script_args, script_args.learning_rate)
+training_args = get_training_args(script_args, script_args.learning_rate, script_args.max_steps)
 save_config(script_args, fed_args)
 print(script_args, fed_args)
 
@@ -30,11 +42,17 @@ train_test_split = dataset.train_test_split(test_size=0.1, seed=2023)
 train_dataset = train_test_split['train']
 test_dataset = train_test_split['test']
 print(f'Train dataset size: {len(train_dataset)}')
-print(f'Train dataset size: {len(test_dataset)}')
+print(f'Test dataset size: {len(test_dataset)}')
 
 # ===== Split the dataset into clients =====
-# local_datasets = split_dataset(fed_args, script_args, train_dataset)
-local_datasets = partition_dataset_with_quantity_skew(fed_args, train_dataset)
+# local_datasets = split_dataset(fed_args, script_args, train_dataset)if 
+if fed_args.partition_type == "quantity":
+    local_datasets = partition_dataset_with_quantity_skew(fed_args, train_dataset)
+elif fed_args.partition_type == "disease": 
+    local_datasets = partition_dataset_with_disease_classes(fed_args, train_dataset, Categories)
+    fed_args.num_clients = len(Categories)
+    fed_args.sample_clients = len(Categories)
+print(f'Client num:{fed_args.num_clients} sample num:{fed_args.sample_clients}')
 sample_num_list = [len(local_datasets[i]) for i in range(fed_args.num_clients)]
 print(f'Partitioned dataset size: {sample_num_list}')
 
@@ -113,26 +131,13 @@ for round in tqdm(range(fed_args.num_rounds)):
             training_loss[client].append(-1)            # -1 is an indicator of not training
             continue
 
-        # global_dict_copy = copy.deepcopy(global_dict)
-        # initial_model_weights = copy.deepcopy(get_peft_model_state_dict(model))
-        # print("Initial model LoRA weights captured.")
-
         set_peft_model_state_dict(model, global_dict)
-        # def compare_state_dicts(dict1, dict2):
-        #     for key in dict1:
-        #         if not torch.equal(dict1[key], dict2[key]):
-        #             return False
-        #     return True
-
-        # if compare_state_dicts(initial_model_weights, global_dict):
-        #     print("The base model already load the lastest global lora weights.")
-        # else:
-        #     print("Load global LoRA unsuccessfully.")
-        # sub_dataset = get_dataset_this_round(local_datasets[client], round, fed_args, script_args)      # get the required sub-dataset for this round
         sub_dataset = local_datasets[client]
-        new_lr = cosine_learning_rate(round, fed_args.num_rounds, script_args.learning_rate, 1e-6)      # manually schedule the learning rate
-        training_args = get_training_args(script_args, new_lr)
-
+        sub_dataset = sub_dataset.shuffle(seed=42)
+        new_max_steps = int((len(sub_dataset)) / (script_args.batch_size * 5))
+        print(f'Dataset size: {len(sub_dataset)} Max_steps: {new_max_steps}')
+        new_lr = cosine_learning_rate(round, fed_args.num_rounds, script_args.learning_rate, 5e-5)      # manually schedule the learning rate
+        training_args = update_logging_steps(script_args, new_max_steps, new_lr)
         # ===== Train local model on the client side =====
         trainer = get_fed_local_sft_trainer(
             model=model,
